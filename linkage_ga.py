@@ -299,7 +299,7 @@ splitting up the two lobes.
 The ability of the linkage to approximate the curve greately depends on the spatial
 position of the curve that it is trying to approximate. 
 """
-left_heart = (linkage.make_heart(1000)[:500] + [1, 2.5])
+left_heart = linkage.make_heart(1000)[:500] + [1, 2.5]
 linkage.disp_trace(left_heart)
 
 
@@ -313,16 +313,19 @@ best_lh_tower = run_sim(A0 = p0, A1 = p1,
 
 np.savetxt("best_lh_tower.csv", best_lh_tower)
 
-'''
+
 right_heart = (linkage.make_heart(1000)[500:] + [.2, 8])[-1:-500:-1]
 linkage.disp_trace(left_heart)
 
 best_rh_tower = run_sim(A0 = p0, A1 = p1, 
-                     target_trace = left_heart, 
-                     n_best = n_best, 
-                     n_quads = n_quads, 
-                     n_generations = 100, 
-                     n_children_per_gen = n_children_per_gen)
-'''
+                        target_trace = right_heart, 
+                        n_best = n_best, 
+                        n_quads = n_quads, 
+                        n_generations = n_generations, 
+                        n_children_per_gen = n_children_per_gen, 
+                        init_pool_size = init_pool_size))
+
+np.savetxt("best_rh_tower.csv", best_rh_tower)
+
 
 
