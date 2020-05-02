@@ -33,27 +33,6 @@ def l2_fitness(tower_trace, target_trace):
         
     return partial_sum / len(tower_trace)
 
-def ApEn(U, m, r) -> float:
-    """
-    Approximate_entropy.
-        
-    thanks wiki!
-    """
-
-    def _maxdist(x_i, x_j):
-        return max([abs(ua - va) for ua, va in zip(x_i, x_j)])
-
-    def _phi(m):
-        x = [[U[j] for j in range(i, i + m - 1 + 1)] for i in range(N - m + 1)]
-        C = [
-            len([1 for x_j in x if _maxdist(x_i, x_j) <= r]) / (N - m + 1.0)
-            for x_i in x
-        ]
-        return (N - m + 1.0) ** (-1) * sum(np.log(C))
-
-    N = len(U)
-
-    return abs(_phi(m + 1) - _phi(m))
 
 def hausdorff_like_fitness(test, target_temp):
     """
@@ -69,7 +48,7 @@ def hausdorff_like_fitness(test, target_temp):
     if (type(test) == type(None)) or (len(test) <= 1):
         return 10000
     
-    if len(test) <= 500:
+    if len(test) <= 300:
         """
         if the test_trace does not have enough data, then toss it
         """
@@ -77,8 +56,8 @@ def hausdorff_like_fitness(test, target_temp):
     
     """
     We want to make the traces the same size, without cutting off chunks of 
-    the traces. So we take an evenly-spaced subsample of either, so that we 
-    maintain the overall shape, just with fewer points. 
+    the traces. So we take an evenly-spaced subsample of the one that is larger, 
+    so that we maintain the overall shape, just with fewer points. 
     """
         
     if len(test) >= len(target):
@@ -106,16 +85,15 @@ def hausdorff_like_fitness(test, target_temp):
     q =  directed_hausdorff(target, 
                             test)[0]
     
-    p_prime = directed_hausdorff(np.diff(test), 
-                                 np.diff(target))[0]
-    q_prime = directed_hausdorff(np.diff(target), 
-                                 np.diff(test))[0]
+    p_prime = directed_hausdorff(np.gradient(test)[0], 
+                                 np.gradient(target)[0])[0]
+    q_prime = directed_hausdorff(np.gradient(target)[0], 
+                                 np.gradient(test)[0])[0]
     
-    hausdorff_fitness = max(p, q) + max(p_prime, q_prime)/4
-    endpoint_fitness = np.mean([start_point_dist, end_point_dist])/16
-    complexity_fitness = abs(np.var(np.diff(test)) - np.var(np.diff(target)))
-    
-    return  hausdorff_fitness + endpoint_fitness + complexity_fitness
+    hausdorff_fitness = max(p, q) + max(p_prime, q_prime)
+    endpoint_fitness = np.mean([start_point_dist, end_point_dist])/4
+
+    return  hausdorff_fitness + endpoint_fitness 
     
     
 def reproduce(parent_tower, 
@@ -187,7 +165,7 @@ def get_best_of_generation(A0, A1, tower_gen, target_trace):
         
         temp_trace = linkage.get_trace(A0, A1, tower, 1000)
         #fitness = l2_fitness(temp_trace, target_trace)
-        fitness = hausdorff_distance(temp_trace, target_trace)
+        fitness = hausdorff_like_fitness(temp_trace, target_trace)
         
         if fitness < best_fit:
             best_fit = fitness
@@ -221,6 +199,7 @@ def get_best_n_of_generation(A0, A1, tower_gen, target_trace, n):
     #best_fitness = np.min(lookup_df['fitness'])
     lookup_df = lookup_df.astype({"fitness":"float32"})
     lookup_df = lookup_df.nsmallest(n, "fitness")
+
     return lookup_df['fitness'].values, lookup_df['tower'].values
 
 
@@ -229,21 +208,22 @@ def run_sim(A0, A1,
             n_best, 
             n_quads, 
             n_generations, 
-            n_children_per_gen):
+            n_children_per_gen, 
+            init_pool_size):
     """
     Initialize first generation:
     """
-    
-    first_gen = generate_randos(150, 
+    first_gen = generate_randos(init_pool_size, 
                                 num_quads = n_quads, 
-                                randos_mutation_factor = 0.9)
+                                randos_mutation_factor = 0.3)
+    
     
     print("Computing traces and fitness for the first generation:")
     best_fit, best_towers = get_best_n_of_generation(p0, p1, 
                                                      first_gen, 
-                                                     target_trace, n_best)
+                                                     target_trace, n_best*3)
     next_generation_L = best_towers
-    print("Best Fitness: {}".format(best_fit))
+    print("\nBest Fitness: {}".format(best_fit))
     
     """
     From the best performing tower in the previous generation, compute the next gen
@@ -263,9 +243,9 @@ def run_sim(A0, A1,
         for tower in temp_best_towers:
             temp_children_L = reproduce(tower, 
                                         num_children = n_children_per_gen, 
-                                        mutation_factor = 0.15 * (0.9999**(n)), 
+                                        mutation_factor = 0.08 * (0.9999**(n)), 
                                         num_randos = 2, 
-                                        randos_mutation_factor = 0.5 * (0.99999 **(n)))
+                                        randos_mutation_factor = 0.3)
             
             for child_L in temp_children_L:
                 next_generation_L.append(child_L)
@@ -292,7 +272,7 @@ def run_sim(A0, A1,
     
     plt.show()
     
-    return best_tower
+    return best_tower[0]
 
 
 """
@@ -302,8 +282,9 @@ p0 = np.asarray([0, 0])
 p1 = np.asarray([1, 0])
 n_best = 5
 n_quads = 6
-n_generations = 100
+n_generations = 150
 n_children_per_gen = 15
+init_pool_size = 200
 
 test_target_L = np.loadtxt("target_l.csv")
 test_target_trace = np.loadtxt("target_trace.csv")
@@ -313,15 +294,25 @@ Trying to get the linkages to draw a heart,
 splitting up the two lobes. 
 """
 
-left_heart = (linkage.make_heart(1000)[:500] + [.2, 8])[-1:-500:-1]
+
+"""
+The ability of the linkage to approximate the curve greately depends on the spatial
+position of the curve that it is trying to approximate. 
+"""
+left_heart = (linkage.make_heart(1000)[:500] + [1, 2.5])
 linkage.disp_trace(left_heart)
+
 
 best_lh_tower = run_sim(A0 = p0, A1 = p1, 
                      target_trace = left_heart, 
                      n_best = n_best, 
                      n_quads = n_quads, 
-                     n_generations = 100, 
-                     n_children_per_gen = n_children_per_gen)
+                     n_generations = n_generations, 
+                     n_children_per_gen = n_children_per_gen, 
+                     init_pool_size = init_pool_size)
+
+np.savetxt("best_lh_tower.csv", best_lh_tower)
+
 '''
 right_heart = (linkage.make_heart(1000)[500:] + [.2, 8])[-1:-500:-1]
 linkage.disp_trace(left_heart)

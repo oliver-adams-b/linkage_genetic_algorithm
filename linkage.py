@@ -144,7 +144,7 @@ def get_trace(A0, A1, lengths, num_samples, draw_tower = False):
     """
     
     max_sep = (lengths[0][0] + lengths[0][1])
-    min_sep = (lengths[0][0] + lengths[0][1])/4
+    min_sep = (lengths[0][0] + lengths[0][1])/5
     
     points = []
     
@@ -152,13 +152,21 @@ def get_trace(A0, A1, lengths, num_samples, draw_tower = False):
         if draw_tower:
             tower_points = get_tower(A0, [A0[0] + d, A0[1]], lengths, 
                                      draw_tower = i%(100) == 0)
-        if not(draw_tower):
+        else:
             tower_points = get_tower(A0, [A0[0] + d, A0[1]], lengths, 
                                      draw_tower = False)
         
-        if type(tower_points) != type(None):
+        if type(tower_points) == type(None):
+            break
+        else:
             points.append(tower_points[1])
             
+        """
+        If there is a large jump in the trace, then something non-physical 
+        has occurred, and so we break
+        """
+        if (i > 10) and (abs(np.linalg.norm(points[i] - points[i-1])) > 1):
+                break
             
     points = np.asarray(points)
     return points
@@ -197,9 +205,11 @@ def make_heart(num_samples):
     def heart(x):
         return 2 - 2*np.sin(x) + np.sin(x)*np.sqrt(np.abs(np.cos(x)))/(np.sin(x) + 1.5)
     
-    thetas = [[np.cos(x)*heart(x),np.sin(x)*heart(x)] for x in thetas]
+    thetas = [[np.cos(x)*heart(x)/3,np.sin(x)*heart(x)/2] for x in thetas]
     return np.asarray(thetas)
 
+def disp_moving_tower(tower):
+    pass
 
 """
 '''
