@@ -1,37 +1,17 @@
 """
-Creating the genetic algorith to create the tower that draws a given curve!
+Creating the genetic algorithm to create the tower that draws a provided curve!
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+from scipy.spatial.distance import directed_hausdorff
+import os
+
+#personal libraries
 import linkage
 from progress_bar import ProgressBar
-from scipy.spatial.distance import directed_hausdorff
-import random
 
-"""
-Define the fitness function!
-"""
-def l2_fitness(tower_trace, target_trace):
-    partial_sum = 0
-    
-    target_trace = target_trace[:10:-1]
-    tower_trace = tower_trace[:10:-1]
-    
-    target_trace = target_trace[:500]
-    tower_trace = tower_trace[:500]
-    
-    if (len(tower_trace) <= 1) or (len(target_trace) <= 1):
-        return 10000
-    
-    for i in range(len(tower_trace)):
-        tow = np.asarray(tower_trace[i])
-        tar = np.asarray(target_trace[i])
-
-        partial_sum = partial_sum + np.linalg.norm(tow - tar)**2
-        
-    return partial_sum / len(tower_trace)
 
 
 def hausdorff_like_fitness(test, target_temp):
@@ -48,7 +28,7 @@ def hausdorff_like_fitness(test, target_temp):
     if (type(test) == type(None)) or (len(test) <= 1):
         return 10000
     
-    if len(test) <= 300:
+    if len(test) <= len(target)/3:
         """
         if the test_trace does not have enough data, then toss it
         """
@@ -90,9 +70,18 @@ def hausdorff_like_fitness(test, target_temp):
     q_prime = directed_hausdorff(np.gradient(target)[0], 
                                  np.gradient(test)[0])[0]
     
-    hausdorff_fitness = max(p, q) + max(p_prime, q_prime)
-    endpoint_fitness = np.mean([start_point_dist, end_point_dist])/4
 
+    hausdorff_fitness = max(p, q) + max(p_prime, q_prime)
+    endpoint_fitness = np.mean([start_point_dist, end_point_dist])
+    
+    """
+    The units for hausdorff_fitness and endpoint_fitness are both distance.
+    We care equally about the 'distance' between the traces themselves as much
+    as we care about the 'distance' between the derivatives of the traces. 
+    
+    The endpoint_fitness is well-defined, and ensures that the generated towers
+    are penalized for not having the trace start and end at the correct locations.
+    """
     return  hausdorff_fitness + endpoint_fitness 
     
     
@@ -148,13 +137,16 @@ def generate_randos(num_randos,
         
     return randos_L
 
-def get_best_of_generation(A0, A1, tower_gen, target_trace):
+def get_best_of_generation(A0, 
+                           tower_gen, 
+                           target_trace, 
+                           n_sample_points = 1000):
     """
     tower_gen is a list of towers, and target_trace is the trace we are hoping
     the towers in tower_gen begin to draw. We compute the trace for each tower
     in tower_gen, and spit out the one with the lowest fitness factor. 
     """
-    best_fit = 100
+    best_fit = 10000
     best_tower = None
     
     progress = ProgressBar(len(tower_gen), fmt = ProgressBar.FULL)
@@ -163,8 +155,8 @@ def get_best_of_generation(A0, A1, tower_gen, target_trace):
         progress.current += 1
         progress.__call__()
         
-        temp_trace = linkage.get_trace(A0, A1, tower, 1000)
-        #fitness = l2_fitness(temp_trace, target_trace)
+        temp_trace = linkage.get_trace(A0, tower, n_sample_points)
+
         fitness = hausdorff_like_fitness(temp_trace, target_trace)
         
         if fitness < best_fit:
@@ -172,11 +164,14 @@ def get_best_of_generation(A0, A1, tower_gen, target_trace):
             best_tower = tower
     
     print("\n")
-    #progress.done()
     
     return best_fit, best_tower
 
-def get_best_n_of_generation(A0, A1, tower_gen, target_trace, n):
+def get_best_n_of_generation(A0, 
+                             tower_gen, 
+                             target_trace, 
+                             n, 
+                             n_sample_points = 1000):
     """
     the same as get_best_of_generation(), but now it returns the n towers with the
     lowest fitness. We take advantage of pandas nlowest() function to help out. 
@@ -189,27 +184,27 @@ def get_best_n_of_generation(A0, A1, tower_gen, target_trace, n):
         progress.current += 1
         progress.__call__()
         
-        temp_trace = linkage.get_trace(A0, A1, tower, 1000)
+        temp_trace = linkage.get_trace(A0, tower, n_sample_points)
         fitness = hausdorff_like_fitness(temp_trace, target_trace)
         
         temp_df = pd.DataFrame({"tower":[tower], "fitness":fitness}, index = [0])
         lookup_df = lookup_df.append(temp_df, sort = False, 
                                      ignore_index = False)
     
-    #best_fitness = np.min(lookup_df['fitness'])
     lookup_df = lookup_df.astype({"fitness":"float32"})
     lookup_df = lookup_df.nsmallest(n, "fitness")
 
     return lookup_df['fitness'].values, lookup_df['tower'].values
 
 
-def run_sim(A0, A1, 
+def run_sim(A0, 
             target_trace, 
             n_best, 
             n_quads, 
             n_generations, 
             n_children_per_gen, 
-            init_pool_size):
+            init_pool_size, 
+            n_sample_points = 800):
     """
     Initialize first generation:
     """
@@ -219,15 +214,16 @@ def run_sim(A0, A1,
     
     
     print("Computing traces and fitness for the first generation:")
-    best_fit, best_towers = get_best_n_of_generation(p0, p1, 
+    best_fit, best_towers = get_best_n_of_generation(A0, 
                                                      first_gen, 
-                                                     target_trace, n_best*3)
+                                                     target_trace, n_best**2, 
+                                                     n_sample_points = n_sample_points)
     next_generation_L = best_towers
     print("\nBest Fitness: {}".format(best_fit))
     
     """
-    From the best performing tower in the previous generation, compute the next gen
-    and update the previous best. Save past bests!
+    From the best performing towers in the previous generation, compute the next gen
+    and update the previous best. 
     """
     best_fits = []
     
@@ -235,7 +231,7 @@ def run_sim(A0, A1,
         
         print("\nComputing traces and fitness of generation {}/{}:".format(n+1, n_generations))
         
-        temp_best_fit, temp_best_towers = get_best_n_of_generation(p0, p1, 
+        temp_best_fit, temp_best_towers = get_best_n_of_generation(A0, 
                                                                    next_generation_L, 
                                                                    target_trace, n_best)
         next_generation_L = []
@@ -243,30 +239,53 @@ def run_sim(A0, A1,
         for tower in temp_best_towers:
             temp_children_L = reproduce(tower, 
                                         num_children = n_children_per_gen, 
-                                        mutation_factor = 0.08 * (0.9999**(n)), 
+                                        mutation_factor = 0.08, 
                                         num_randos = 2, 
                                         randos_mutation_factor = 0.3)
             
             for child_L in temp_children_L:
                 next_generation_L.append(child_L)
-                                                          
+                 
+        """
+        Plot how well the computer is doing at each time step.
+        """                                        
         best_tower = temp_best_towers
         best_fits.append(temp_best_fit)
         print("\n{}".format(temp_best_fit))
         plt.plot(best_fits)
-        plt.xlabel("generation number")
-        plt.ylabel("fitness")
+        plt.ylim(bottom = 0)
+        plt.hlines(0.25,
+                   xmin = 0, 
+                   xmax = n+1,
+                   linestyles = 'dotted', 
+                   colors = 'r')
+        plt.xlabel("Generation Number")
+        plt.ylabel("Hausdorff-like Distance")
+        plt.title("Distance from the Target Trace For \n the Best {} Agents over {} Generations".format(n_best, n_generations))
         plt.show()
         
         if n%5 == 0:
+            '''
+            Every five steps, draw the n_best traces to get a visual about 
+            how the decreases in fitness match with the best-fit traces. 
+            '''
             for tower in best_tower:
-                linkage.disp_trace(linkage.get_trace(p0, p1, tower, 1000), 
+                linkage.disp_trace(linkage.get_trace(A0, tower, n_sample_points/2), 
                                    cmap = 'autumn', label = 'best_trace')
                 linkage.disp_trace(target_trace, label = 'target_trace')
                 plt.show()
+                
+        if n > 100:
+            #if no progress has been made in the past 50 generations, break
+            if best_fits[n][0] == best_fits[n - 60][0]:
+                break
             
+       
+    '''
+    At the end, show the monstrosity of a tower that the computer has made for you
+    '''
     linkage.disp_tower(best_tower[0])
-    linkage.disp_trace(linkage.get_trace(p0, p1, best_tower[0], 1000), 
+    linkage.disp_trace(linkage.get_trace(A0, best_tower[0], n_sample_points), 
                        cmap = 'autumn', label = 'best_trace')
     linkage.disp_trace(target_trace, label = 'target_trace')
     
@@ -275,57 +294,104 @@ def run_sim(A0, A1,
     return best_tower[0]
 
 
+def gen_towers_from_traces(traces, 
+                           save_folder_name):
+    """
+    Given a set of traces, generate some towers whose traces approximate those
+    that are given. Save the best towers for each trace
+    """
+    p0 = np.asarray([0, 0])
+    n_best = 5
+    n_quads = 5
+    n_generations = 3
+    n_children_per_gen = 15
+    init_pool_size = 200
+    
+    try:
+        os.mkdir(save_folder_name)
+    except FileExistsError:
+        pass
+    
+    for index, trace in enumerate(traces):
+        print("\nWorking on trace {} out of {} ********************* \n".format(index, len(traces)))
+        temp_tower = run_sim(A0 = p0, 
+                             target_trace = trace, 
+                             n_best = n_best, 
+                             n_quads = n_quads, 
+                             n_generations = n_generations, 
+                             n_children_per_gen = n_children_per_gen, 
+                             init_pool_size = init_pool_size)
+        
+        np.savetxt("{}/trace_tower_{}.csv".format(save_folder_name, index), temp_tower)
+    
+    """
+    Now look at the monstrosities that the computer has made
+    """
+    tower_names = os.listdir(save_folder_name)
+    towers = [np.loadtxt("{}/trace_tower_{}.csv".format(save_folder_name, index)) 
+              for i in range(len(tower_names))]
+    linkage.disp_moving_towers(towers)
+    
+    
 """
-Initialize the anchor points and target structures
+Creating two veritcal lines so that I can test the gen_towers_from_traces funciton
 """
+
+y_vals = np.linspace(5, 8, 1000)
+vert_trace1 = np.asarray([[1.5, y] for y in y_vals])
+vert_trace2 = vert_trace1 + [-0.5, 0]
+
+linkage.disp_traces([vert_trace1, vert_trace2])
+
+gen_towers_from_traces([vert_trace1, vert_trace2], 
+                       "vertical_lines_test")
+
+
+
+"""
+'''
+Trying to get the linkages to draw a heart, 
+splitting up the two lobes. 
+
+The ability of the linkage to approximate the curve greately 
+depends on the spatial position of the curve that it is trying to approximate. 
+'''
+
+'''
+Initialize the anchor points and 'hyperparameters'
+'''
 p0 = np.asarray([0, 0])
-p1 = np.asarray([1, 0])
 n_best = 5
-n_quads = 6
-n_generations = 150
+n_quads = 5
+n_generations = 250
 n_children_per_gen = 15
 init_pool_size = 200
 
-test_target_L = np.loadtxt("target_l.csv")
-test_target_trace = np.loadtxt("target_trace.csv")
-
-"""
-Trying to get the linkages to draw a heart, 
-splitting up the two lobes. 
-"""
-
-
-"""
-The ability of the linkage to approximate the curve greately depends on the spatial
-position of the curve that it is trying to approximate. 
-"""
-left_heart = linkage.make_heart(1000)[:500] + [1, 2.5]
+left_heart = (linkage.make_heart(1600)[:800] + [2, 10])
 linkage.disp_trace(left_heart)
 
-
-best_lh_tower = run_sim(A0 = p0, A1 = p1, 
-                     target_trace = left_heart, 
-                     n_best = n_best, 
-                     n_quads = n_quads, 
-                     n_generations = n_generations, 
-                     n_children_per_gen = n_children_per_gen, 
-                     init_pool_size = init_pool_size)
+best_lh_tower = run_sim(A0 = p0, 
+                      target_trace = left_heart, 
+                      n_best = n_best, 
+                      n_quads = n_quads, 
+                      n_generations = n_generations, 
+                      n_children_per_gen = n_children_per_gen, 
+                      init_pool_size = init_pool_size)
 
 np.savetxt("best_lh_tower.csv", best_lh_tower)
 
 
-right_heart = (linkage.make_heart(1000)[500:] + [.2, 8])[-1:-500:-1]
-linkage.disp_trace(left_heart)
+right_heart = (linkage.make_heart(1600)[800:] + [.5, 10])[-1:0:-1]
+linkage.disp_trace(right_heart)
 
-best_rh_tower = run_sim(A0 = p0, A1 = p1, 
-                        target_trace = right_heart, 
-                        n_best = n_best, 
-                        n_quads = n_quads, 
-                        n_generations = n_generations, 
-                        n_children_per_gen = n_children_per_gen, 
-                        init_pool_size = init_pool_size))
+best_rh_tower = run_sim(A0 = p0, 
+                      target_trace = right_heart, 
+                      n_best = n_best, 
+                      n_quads = n_quads, 
+                      n_generations = n_generations, 
+                      n_children_per_gen = n_children_per_gen, 
+                      init_pool_size = init_pool_size)
 
 np.savetxt("best_rh_tower.csv", best_rh_tower)
-
-
+"""
 
