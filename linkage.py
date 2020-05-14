@@ -244,7 +244,7 @@ def make_dna(num_samples):
     """
     Makes a veritcal dna strand
     
-    Basically just two vertical sinusoidal waves offset by 180 degrees. 
+    Basically just two vertical sinusoidal waves offset by pi/2. 
     Then we got some ladder rungs connecting the two twisting edges. 
     """
     
@@ -373,23 +373,20 @@ def disp_moving_towers(towers,
         plt.show()
                 
 
-disp_traces(make_dna(100))
+"""
+#example demo of the linkages tracing out a heart
+
 best_lh_tower = np.loadtxt("best_lh_tower.csv")
 best_rh_tower = np.loadtxt("best_rh_tower.csv")
-
-test_tower = [[1, 1, 1, 1], 
-              [1, 1, 1, 1], 
-              [1, 1, 1, 1], 
-              [1, 1, 1, 1], 
-              [1, 1, 1, 1]]
 
 towers = [best_lh_tower, best_rh_tower]
 
 disp_moving_towers(towers, 
-                    pos_offsets = [[0, 0], [.9, -.5]], 
-                    time_offsets = [30, 50], 
-                    num_samples = 180, 
-                    frame_rate = 1)
+                   pos_offsets = [[0, 0], [.9, -.5]], 
+                   time_offsets = [30, 50], 
+                   num_samples = 180, 
+                   frame_rate = 1)
+"""
 
 
 

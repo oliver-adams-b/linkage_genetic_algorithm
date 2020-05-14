@@ -79,7 +79,7 @@ def hausdorff_like_fitness(test, target_temp):
     We care equally about the 'distance' between the traces themselves as much
     as we care about the 'distance' between the derivatives of the traces. 
     
-    The endpoint_fitness is well-defined, and ensures that the generated towers
+    The endpoint_fitness is well-defined, and ensures that the generated traces
     are penalized for not having the trace start and end at the correct locations.
     """
     return  hausdorff_fitness + endpoint_fitness 
@@ -276,7 +276,7 @@ def run_sim(A0,
                 plt.show()
                 
         if n > 100:
-            #if no progress has been made in the past 50 generations, break
+            #if no progress has been made in the past 60 generations, break
             if best_fits[n][0] == best_fits[n - 60][0]:
                 break
             
@@ -295,7 +295,8 @@ def run_sim(A0,
 
 
 def gen_towers_from_traces(traces, 
-                           save_folder_name):
+                           save_folder_name, 
+                           show_result = False):
     """
     Given a set of traces, generate some towers whose traces approximate those
     that are given. Save the best towers for each trace
@@ -303,7 +304,7 @@ def gen_towers_from_traces(traces,
     p0 = np.asarray([0, 0])
     n_best = 5
     n_quads = 5
-    n_generations = 3
+    n_generations = 250
     n_children_per_gen = 15
     init_pool_size = 200
     
@@ -324,30 +325,16 @@ def gen_towers_from_traces(traces,
         
         np.savetxt("{}/trace_tower_{}.csv".format(save_folder_name, index), temp_tower)
     
-    """
-    Now look at the monstrosities that the computer has made
-    """
-    tower_names = os.listdir(save_folder_name)
-    towers = [np.loadtxt("{}/trace_tower_{}.csv".format(save_folder_name, index)) 
-              for i in range(len(tower_names))]
-    linkage.disp_moving_towers(towers)
+    if show_result:
+        """
+        Now look at the monstrosities that the computer has made
+        """
+        tower_names = os.listdir(save_folder_name)
+        towers = [np.loadtxt("{}/trace_tower_{}.csv".format(save_folder_name, index)) 
+                  for i in range(len(tower_names))]
+        linkage.disp_moving_towers(towers)
     
     
-"""
-Creating two veritcal lines so that I can test the gen_towers_from_traces funciton
-"""
-
-y_vals = np.linspace(5, 8, 1000)
-vert_trace1 = np.asarray([[1.5, y] for y in y_vals])
-vert_trace2 = vert_trace1 + [-0.5, 0]
-
-linkage.disp_traces([vert_trace1, vert_trace2])
-
-gen_towers_from_traces([vert_trace1, vert_trace2], 
-                       "vertical_lines_test")
-
-
-
 """
 '''
 Trying to get the linkages to draw a heart, 
