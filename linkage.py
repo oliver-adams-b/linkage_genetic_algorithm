@@ -1,5 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import os
+
+from pylab import rcParams
+rcParams['figure.figsize'] = 10, 10
 
 """
 A set of functions that allow us to instantiate linkages, as well as 
@@ -302,7 +306,8 @@ def disp_moving_towers(towers,
                        pos_offsets = None,
                        time_offsets = None, 
                        num_samples = 100, 
-                       frame_rate = 1):
+                       frame_rate = 1, 
+                       save_folder = ""):
     
     """
     Takes a list of towers and a list of positional offsets, 
@@ -316,6 +321,11 @@ def disp_moving_towers(towers,
     So the number of frames will be something like num_samples/frame_rate
     """
     
+    if save_folder != "":
+        try:
+            os.mkdir(save_folder)
+        except FileExistsError:
+            pass
     if time_offsets == None:
         time_offsets = np.zeros(len(towers))
         
@@ -351,8 +361,8 @@ def disp_moving_towers(towers,
                 ax.axes.xaxis.set_visible(False)
                 ax.axes.yaxis.set_visible(False)
                 
-                plt.ylim(top = 12, bottom = -1)
-                plt.xlim(left = -2, right = 6)
+                plt.ylim(top = 11, bottom = -1)
+                plt.xlim(left = -3, right = 7)
                 
                 if (type(tower) != type(None)) and (d_new > min_sep):
                     x, y = tower[1]
@@ -370,10 +380,15 @@ def disp_moving_towers(towers,
                             c = np.linspace(0, 1, num = len(traces[i])),
                             cmap = 'rainbow_r', 
                             s = 2)
+                
+        if (save_folder != "") and ((frame % frame_rate) == 0):
+                    plt.savefig("{}/frame_{}.svg".format(save_folder, frame))
+                    
         plt.show()
+        
                 
 
-"""
+
 #example demo of the linkages tracing out a heart
 
 best_lh_tower = np.loadtxt("best_lh_tower.csv")
@@ -384,9 +399,10 @@ towers = [best_lh_tower, best_rh_tower]
 disp_moving_towers(towers, 
                    pos_offsets = [[0, 0], [.9, -.5]], 
                    time_offsets = [30, 50], 
-                   num_samples = 180, 
-                   frame_rate = 1)
-"""
+                   num_samples = 400, 
+                   frame_rate = 1, 
+                   save_folder = "heart_output")
+
 
 
 
