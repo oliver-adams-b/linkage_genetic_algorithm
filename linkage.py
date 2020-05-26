@@ -224,7 +224,7 @@ def get_t_final_interval(lengths):
         next_interval = [get_t_prime(quad, top_interval[0]), 
                          get_t_prime(quad, top_interval[1])]
         base_interval = intersection(next_interval, 
-                                     get_base_interval(lengths[i+1]))
+                                     get_base_interval(ho_refl_tower[i+1]))
         
     return base_interval
 
@@ -447,6 +447,8 @@ def disp_moving_towers(towers,
         xscale = im.width/abs(bounds[0][0] - bounds[0][1])
         yscale = im.height/abs(bounds[1][0] - bounds[1][1])
     
+    broken = [False for _ in range(len(towers))]
+    
     print("Drawing moving towers...\n")
     progress = ProgressBar(num_frames, fmt = ProgressBar.FULL)
     for frame in range(num_frames):
@@ -471,7 +473,7 @@ def disp_moving_towers(towers,
             p_n = pos_offsets[i]
             t_n = time_offsets[i]
                 
-            if (t_n <= frame) and ((frame % frame_rate) == 0):
+            if ((t_n <= frame) and ((frame % frame_rate) == 0)):
                 d = constrain((frame - t_n)/num_samples, [0,1])
   
                 max_sep = (tow_n[0][0] + tow_n[0][1])
@@ -479,13 +481,18 @@ def disp_moving_towers(towers,
                 
                 d_new = (1 - d)*max_sep + (d)*min_sep
 
+                tower = None
                 
-                tower = get_tower(A0 = np.asarray(p_n),
-                                  A1 = np.asarray([p_n[0] + d_new, p_n[1]]), 
-                                  lengths = tow_n, 
-                                  draw_tower = False, 
-                                  show = False)
+                if not(broken[i]):
+                    tower = get_tower(A0 = np.asarray(p_n),
+                                      A1 = np.asarray([p_n[0] + d_new, p_n[1]]), 
+                                      lengths = tow_n, 
+                                      draw_tower = False, 
+                                      show = False)
                 
+                if (frame > t_n+2) and (abs(np.linalg.norm(traces[i][-1] - traces[i][-2])) > 0.5):
+                    broken[i] = True  
+                    
                 if background_image != "":
                     plt.imshow(im, origin = 'lower')
                 
@@ -609,16 +616,26 @@ def make_movie(dir_of_ims, target_name):
 
 #example demo of the linkages drawing out dna
 
+#img_loc = "/home/oliver/Documents/linkage_ga/cute_images/lawn.jpg"
 # dna_towers_names = os.listdir("dna_output/")
 # dna_towers = []
 
 # for name in dna_towers_names:
 #     dna_towers.append(np.loadtxt("dna_output/{}".format(name)))
     
-# pos_offsets = [[3, 1] for _ in dna_towers]
+# num_samples = 350
+# time_offsets = list(range(0, int(num_samples/2), 
+#                           int(np.floor(num_samples/(2*(len(dna_towers)-1))))))
+
+# pos_offsets = [[3.75, 1.5] for _ in dna_towers]
 # disp_moving_towers(dna_towers, 
-#                    pos_offsets = pos_offsets,
-#                    num_samples = 200)
+#                     pos_offsets = pos_offsets,
+#                     time_offsets = time_offsets,
+#                     num_samples = num_samples, 
+#                     save_folder = "dna_pic_output", 
+#                     background_image = img_loc)
+
+#make_movie("dna_pic_output", "dna.mp4")
 
 
 

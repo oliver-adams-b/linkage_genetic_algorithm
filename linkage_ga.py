@@ -369,11 +369,13 @@ def gen_towers_from_traces(traces,
         
         np.savetxt("{}/trace_tower_{}.csv".format(save_folder_name, index), temp_tower)
     
-    
-
+  
+"""
+#using gen_towers_from_traces() to draw some dna
 dna = linkage.make_dna(800, dpos = [1, 5.5], dscale = [1.15, 0.7])
 gen_towers_from_traces(dna, 'dna_output')
-    
+"""  
+
 """
 '''
 Trying to get the linkages to draw a heart, 
@@ -381,6 +383,8 @@ splitting up the two lobes.
 
 The ability of the linkage to approximate the curve greately 
 depends on the spatial position of the curve that it is trying to approximate. 
+
+This method was used before gen_towers_from_traces was made! 
 '''
 
 '''
