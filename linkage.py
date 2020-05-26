@@ -1,9 +1,18 @@
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
+from PIL import Image
+from matplotlib import animation
+import intervals as I
 import os
+import re 
 
 from pylab import rcParams
-rcParams['figure.figsize'] = 10, 10
+from progress_bar import ProgressBar
+
+
+plt.rcParams['animation.ffmpeg_path'] = '/usr/bin/ffmpeg'
+rcParams['figure.figsize'] = 15, 15
 
 """
 A set of functions that allow us to instantiate linkages, as well as 
@@ -12,6 +21,8 @@ draw the traces for those linkages.
 
 def get_tri(p0, p1, l0, l1):
     '''
+    a basic way to solve for the final coordinate of a triangle defined by SSS
+    
     p1, p2 are numpy arrays representing the 2D location of the
     points of the linkage. 
     
@@ -122,9 +133,9 @@ def get_tower(A0, A1, lengths,
         y_points.append(p0[1])
         y_points.append(p1[1])
     
-    p3 = get_tri(p1, p0, 
-                 l0 = np.mean(lengths[0][0] + lengths[0][1]), 
-                 l1 = np.mean(lengths[0][0] + lengths[0][1]))
+    p3 = get_tri((p1, p0)[len(lengths)%2 == 0], (p0, p1)[len(lengths)%2 == 0], 
+                 l0 = (lengths[-1][3] + lengths[-1][2])/2, 
+                 l1 = (lengths[-1][2] + lengths[-1][3])/2)
     
     if type(p3) != type(None):
         y_points.append(p3[1])
@@ -152,6 +163,71 @@ def get_tower(A0, A1, lengths,
             plt.show()
         
     return [p3, [x, y]]
+
+
+"""
+Rather than computing a trace for all t values in [max_sep, min_sep], we are going 
+to narrow this interval down to hopefully decrease computation time
+"""
+
+def get_t_final_interval(lengths):
+    """
+    Returns the interval on which the trace will be well defined (the tower will be unbroken)
+    Where T_final = intersection_{j=1}^{n} [|t_{j,2} -t_{j, 1}|, t_{j,2} + t_{j, 1}]
+    """
+    def get_base_interval(quad):
+        """
+        Returns range of motion for the bottom of the quad
+        """
+        return [abs(quad[1] - quad[0]), quad[1] + quad[0]]
+    
+    def get_top_interval(quad):
+        """
+        Returns the range of motion for the top of the quad
+        """
+        return [abs(quad[2] - quad[3]), quad[2] + quad[3]]
+    
+    def get_t_prime(quad, t):
+        """
+        Returns the distance between the top two endpoints as a function of the quad and t 
+        """
+        l1, l2, l3, l4 = quad
+        a = l3**2 + l4**2
+        b = l4*l3*(l1**2 + l2**2 - t**2)
+        c = l1*l2
+        
+        return np.sqrt(a - b/c)
+    
+    def intersection(A, B):
+        """
+        Returns the intersection of A and B (subsets of the real numbers)
+        """
+        AcapB = I.closed(A[0], A[1]) & I.closed(B[0], B[1])
+        
+        if AcapB.lower == I._PInf():
+            return None #here None indicates that the intersection is empty
+        return [AcapB.lower, AcapB.upper]
+        
+    
+    #getting top interval
+    top_interval = get_base_interval(lengths[0])
+    for i, quad in enumerate(lengths[1:-1]):
+        next_interval = [get_t_prime(quad, top_interval[0]), 
+                         get_t_prime(quad, top_interval[1])]
+        top_interval = intersection(next_interval, 
+                                    get_base_interval(lengths[i+1]))
+     
+    #now taking the preimage of the top interval
+    ho_refl_tower = ho_reflect_tower(lengths)
+    base_interval = top_interval
+    for i, quad in enumerate(ho_refl_tower[1:-1]):
+        next_interval = [get_t_prime(quad, top_interval[0]), 
+                         get_t_prime(quad, top_interval[1])]
+        base_interval = intersection(next_interval, 
+                                     get_base_interval(lengths[i+1]))
+        
+    return base_interval
+
 
 def get_trace(A0, lengths, num_samples, draw_tower = False):
     """
@@ -202,7 +278,7 @@ def disp_tower(lengths,
              on a given variable)
             """
             A0 = np.asarray([0, 0])
-            A1 = np.asarray([(lengths[0][0] + lengths[0][1])/2, 0])
+            A1 = np.asarray([(lengths[0][0] + lengths[0][1])/3, 0])
             
     get_tower(A0, A1, lengths, 
               draw_tower = True, view_box = view_box, show = show)
@@ -244,7 +320,10 @@ def make_heart(num_samples):
     thetas = [[np.cos(x)*heart(x),np.sin(x)*heart(x)] for x in thetas]
     return np.asarray(thetas)
 
-def make_dna(num_samples):
+def make_dna(num_samples, 
+             rungs = 5, 
+             dpos = [0, 0], 
+             dscale = [1, 1]):
     """
     Makes a veritcal dna strand
     
@@ -253,17 +332,17 @@ def make_dna(num_samples):
     """
     
     y_vals = np.linspace(0, 1.5*np.pi, num_samples)
-    vert_cos = np.asarray([[np.cos(y), y] for y in y_vals])
-    vert_sin = np.asarray([[np.sin(y), y] for y in y_vals])
+    vert_cos = np.asarray([[np.cos(y)*dscale[0]+dpos[0], y*dscale[1]+dpos[1]] for y in y_vals])
+    vert_sin = np.asarray([[np.sin(y)*dscale[0]+dpos[0], y*dscale[1]+dpos[1]] for y in y_vals])
     
     dna = [vert_cos, vert_sin]
     
-    for d in np.linspace(0.25, 1.5*np.pi-0.25, 10):
+    for d in np.linspace(0.25, 1.5*np.pi-0.25, rungs):
         rung_width = abs(np.cos(d) - np.sin(d))
         
         if rung_width > 0.1:
-            temp_rung = np.linspace(np.cos(d), np.sin(d), np.floor(rung_width/(1.5*np.pi/num_samples)))
-            dna.append(np.asarray([[r, d] for r in temp_rung]))
+            temp_rung = np.linspace(np.cos(d), np.sin(d), int(rung_width/(1.5*np.pi/num_samples)))
+            dna.append(np.asarray([[r*dscale[0]+dpos[0], d*dscale[1]+dpos[1]] for r in temp_rung]))
     
     return dna
     
@@ -293,21 +372,40 @@ def vert_reflect_tower(lengths):
     For each quad in the tower, we perform the permutation
     [l1, l2, l3, l4] --> [l2, l1, l4, l3]
     """
-    new_lengths = []
-    
-    for length in lengths:
-        new_lengths.append([length[1], 
-                            length[0], 
-                            length[3], 
-                            length[2]])
+    new_lengths = [[l[1],l[0],l[3],l[2]] for l in lengths]
+
     return new_lengths
 
+def ho_reflect_tower(lengths):
+    """
+    make the top of the tower be the new bottom of the tower
+    """
+    new_lengths = lengths[-1::-1]
+    new_lengths = [[l[3], l[2], l[1], l[0]] for l in new_lengths]
+    return new_lengths
+
+def scale_tower(lengths, scalar):
+    #just globally scales the tower
+    return (np.asarray(lengths)*scalar).tolist()
+
+def adjust_pencil(lengths, scalar):
+    #scales the top two lengths of the tower (absusive notation, abuse of)
+    #scaling these two lengths changes how the curve is traced, 
+    temp_lengths = lengths[:-1]
+    temp_lengths.append([lengths[-1][0], 
+                         lengths[-1][1], 
+                         lengths[-1][2]*scalar, 
+                         lengths[-1][3]*scalar])
+    return temp_lengths
+    
 def disp_moving_towers(towers, 
                        pos_offsets = None,
                        time_offsets = None, 
                        num_samples = 100, 
                        frame_rate = 1, 
-                       save_folder = ""):
+                       save_folder = "", 
+                       background_image = "",
+                       bounds = [[-3, 7], [11, -1]]):
     
     """
     Takes a list of towers and a list of positional offsets, 
@@ -319,25 +417,55 @@ def disp_moving_towers(towers,
     
     the frame_rate is the number of frames to compute before displaying something. 
     So the number of frames will be something like num_samples/frame_rate
+    
+    bounds is for setting xlim ylim with [[left, right], [top, bottom]]
     """
     
-    if save_folder != "":
-        try:
-            os.mkdir(save_folder)
-        except FileExistsError:
-            pass
+
     if time_offsets == None:
         time_offsets = np.zeros(len(towers))
         
     if pos_offsets == None:
         pos_offsets = np.zeros((len(towers), 2))
     
-    traces = [[[None, None]] for x in range(len(towers))]
+    traces = [[[0, 0]] for x in range(len(towers))]
     
     num_frames = num_samples + int(max(time_offsets)) + 2
     
-    for frame in range(num_frames):
+    im = None
+    xscale, yscale = 1.0, 1.0
+    
+    if save_folder != "":
+        try:
+            os.mkdir(save_folder)
+        except FileExistsError:
+            pass
+    
+    if background_image != "":
+        im = Image.open(background_image).rotate(180)
         
+        xscale = im.width/abs(bounds[0][0] - bounds[0][1])
+        yscale = im.height/abs(bounds[1][0] - bounds[1][1])
+    
+    print("Drawing moving towers...\n")
+    progress = ProgressBar(num_frames, fmt = ProgressBar.FULL)
+    for frame in range(num_frames):
+        progress.current += 1
+        progress.__call__()
+        
+        ax = plt.gca()
+        ax.axes.xaxis.set_visible(False)
+        ax.axes.yaxis.set_visible(False)
+        
+        plt.axis('off')
+        
+        if im == None:
+            plt.xlim(left = bounds[0][0], right = bounds[0][1])
+            plt.ylim(top = bounds[1][0], bottom = bounds[1][1])
+        else:
+            plt.xlim(left = 0, right = im.width)
+            plt.ylim(top = im.height, bottom = 0)
+            
         for i in range(len(towers)):
             tow_n = towers[i]
             p_n = pos_offsets[i]
@@ -357,12 +485,9 @@ def disp_moving_towers(towers,
                                   lengths = tow_n, 
                                   draw_tower = False, 
                                   show = False)
-                ax = plt.gca()
-                ax.axes.xaxis.set_visible(False)
-                ax.axes.yaxis.set_visible(False)
                 
-                plt.ylim(top = 11, bottom = -1)
-                plt.xlim(left = -3, right = 7)
+                if background_image != "":
+                    plt.imshow(im, origin = 'lower')
                 
                 if (type(tower) != type(None)) and (d_new > min_sep):
                     x, y = tower[1]
@@ -372,39 +497,128 @@ def disp_moving_towers(towers,
                     c2 = [(False, True)[(i%4 == 2) ^ (i%4 == 0)] for i in range(len(x))]
                     
                     plt.scatter(x, y, s = 1)
-                    plt.plot(x[c2], y[c2])
-                    plt.plot(x[c1], y[c1])
-                
-                plt.scatter(np.asarray(traces[i])[:, 0], 
-                            np.asarray(traces[i])[:, 1], 
-                            c = np.linspace(0, 1, num = len(traces[i])),
-                            cmap = 'rainbow_r', 
-                            s = 2)
-                
-        if (save_folder != "") and ((frame % frame_rate) == 0):
-                    plt.savefig("{}/frame_{}.svg".format(save_folder, frame))
+                    plt.plot(np.asarray(x[c2])*xscale, 
+                             np.asarray(y[c2])*yscale, 
+                             linewidth = 3.5, 
+                             c = ('w', 'r')[im == None])
                     
-        plt.show()
-        
-                
+                    plt.plot(np.asarray(x[c1])*xscale, 
+                             np.asarray(y[c1])*yscale, 
+                             linewidth = 3.5, 
+                             c = ('w', 'b')[im == None])
+                    
+                plt.scatter(np.asarray(traces[i])[:, 0]*xscale, 
+                            np.asarray(traces[i])[:, 1]*yscale, 
+                            c = np.linspace(0, 1, num = len(traces[i])),
+                            cmap =  ('spring', 'rainbow_r')[im == None], 
+                            s = 20)
+            
+            
+        if (save_folder != "") and ((frame % frame_rate) == 0):
+            plt.savefig("{}/frame_{}.jpg".format(save_folder, frame),
+                        bbox_inches ='tight', 
+                        dpi = 400)
+            
+        if ((frame % frame_rate) == 0):
+            plt.show()
+            
+                    
+def make_movie(dir_of_ims, target_name):
 
+    files_in_dir = os.listdir(dir_of_ims)
+    
+    """
+    os.listdir gives you a list of all the file names in the provided dir, but the order
+    of the file names in the list isn't the same as the way the files appear 
+    in the directory. So we gotta use the strength of pandas.sort_values to help
+    """
+    images = pd.DataFrame({'fnames':files_in_dir, 
+                           'fnumbers':[int(re.findall("\d+", f)[0]) for f in files_in_dir]})
+    
+    images = images.sort_values(by=['fnumbers'])
+    sorted_names = list(images['fnames'].values)
+    
+    #making the trace hang on longer in the end
+    last_im_name = sorted_names[-1]
+    for _ in range(60):
+        sorted_names.append(last_im_name)
+        
+    """
+    matplotlib can be annoying and i'm just trying to make it so that the
+    white padding around the image is gone -- it might be overkil and i just
+    tried things until it worked
+    """
+    fig = plt.figure(frameon = False)
+    fig.set_size_inches(15, 15)
+    ax = plt.gca()
+    ax.axes.xaxis.set_visible(False)
+    ax.axes.yaxis.set_visible(False)
+            
+    ax = plt.Axes(fig, [0.0, 0.0, 1.0, 1.0])
+    ax.set_axis_off()
+    fig.add_axes(ax)
+    
+    images = [] 
+    progress = ProgressBar(len(sorted_names), fmt = ProgressBar.FULL)
+    print("Making a movie, compiling images...")
+    for name in sorted_names:
+        progress.current += 1
+        progress.__call__()
+        
+        temp_im = Image.open("{}/{}".format(dir_of_ims, name)).rotate(180)
+        plt.xlim(left = 0, right = temp_im.width)
+        plt.ylim(top = temp_im.height, bottom = 0)
+
+        plt.axis('off')
+        
+        plt_im = ax.imshow(temp_im, aspect = temp_im.width/temp_im.height)
+        images.append([plt_im])
+        
+    print("\nWriting and saving animation...(this may take a while)")
+    ani = animation.ArtistAnimation(fig, images, interval = 50)
+    writer = animation.FFMpegWriter(fps = 30)
+    ani.save(target_name, writer = writer)
+    print("Done!")
+    
 
 #example demo of the linkages tracing out a heart
 
-best_lh_tower = np.loadtxt("best_lh_tower.csv")
-best_rh_tower = np.loadtxt("best_rh_tower.csv")
-
-towers = [best_lh_tower, best_rh_tower]
-
-disp_moving_towers(towers, 
-                   pos_offsets = [[0, 0], [.9, -.5]], 
-                   time_offsets = [30, 50], 
-                   num_samples = 400, 
-                   frame_rate = 1, 
-                   save_folder = "heart_output")
+# img_loc = "/home/oliver/Documents/linkage_ga/cute_images/goats.jpeg"
+# test_tower = [[1, 1.2, 1, 1.2], [1, 1.3, 1.2, 1.2], [1, 1.3, 1.2, 1.2], [1, 1, 1, 1]]
 
 
+# disp_moving_towers([adjust_pencil(test_tower, 2), 
+#                     scale_tower(test_tower, 1.15), 
+#                     test_tower])
 
+# best_lh_tower = np.loadtxt("best_lh_tower.csv")
+# best_rh_tower = np.loadtxt("best_rh_tower.csv")
+
+# towers = [best_lh_tower, best_rh_tower]
+
+# disp_moving_towers(towers, 
+#                     pos_offsets = [[3, 1], [3.9, .5]], 
+#                     time_offsets = [0, 0], 
+#                      num_samples = 500, 
+#                     save_folder = "heart_output", 
+#                     background_image = img_loc)
+
+
+#make_movie('heart_output', 'heart.mp4')
+
+
+#example demo of the linkages drawing out dna
+
+# dna_towers_names = os.listdir("dna_output/")
+# dna_towers = []
+
+# for name in dna_towers_names:
+#     dna_towers.append(np.loadtxt("dna_output/{}".format(name)))
+    
+# pos_offsets = [[3, 1] for _ in dna_towers]
+# disp_moving_towers(dna_towers, 
+#                    pos_offsets = pos_offsets,
+#                    num_samples = 200)
 
 
 

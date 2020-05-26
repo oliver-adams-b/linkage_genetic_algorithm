@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from scipy.spatial.distance import directed_hausdorff
+from graphs import Graph
 import os
 
 #personal libraries
@@ -72,7 +73,7 @@ def hausdorff_like_fitness(test, target_temp):
     
 
     hausdorff_fitness = max(p, q) + max(p_prime, q_prime)
-    endpoint_fitness = np.mean([start_point_dist, end_point_dist])
+    endpoint_fitness = np.mean([start_point_dist, end_point_dist])/2
     
     """
     The units for hausdorff_fitness and endpoint_fitness are both distance.
@@ -85,16 +86,21 @@ def hausdorff_like_fitness(test, target_temp):
     return  hausdorff_fitness + endpoint_fitness 
     
     
-def reproduce(parent_tower, 
-              num_children, 
-              mutation_factor, 
-              num_randos, 
-              randos_mutation_factor):
+def make_offspring(parent_tower, 
+                   num_children, 
+                   mutation_factor, 
+                   num_randos, 
+                   randos_mutation_factor, 
+                   n_adjusted_children = 0):
     
     """
     Takes a parent, and creates the next generation stemming from that parent. 
     We introduce some randos in the mix just to make sure that the population
     always has some randos in it! 
+    
+    n_adjusted_children is the number of childen to create that are scalings and
+    pencil_adjustments of the parent_tower. So we are either scaling the whole 
+    parent tower or just the last two lengths. 
     """
     
     children_L = []
@@ -104,7 +110,7 @@ def reproduce(parent_tower,
         temp_L = []
         
         for i in range(parent_n_quads):
-            parent_L = np.abs(list(np.asarray(parent_tower[i]) + (np.random.rand(4)*2 -1)*mutation_factor))
+            parent_L = list(np.abs(np.asarray(parent_tower[i]) + (np.random.rand(4)*2 -1)*mutation_factor))
             temp_L.append(parent_L)
         
         children_L.append(temp_L)
@@ -116,9 +122,47 @@ def reproduce(parent_tower,
         children_L.append(randos_L[i])
         
     children_L.append(parent_tower)
+    
+    n_pencil_adjusts = int(n_adjusted_children/3)
+    n_scalar_adjusts = n_adjusted_children - n_pencil_adjusts
+    
+    for _ in range(n_pencil_adjusts):
+        children_L.append(linkage.adjust_pencil(parent_tower, 
+                                                (np.random.rand(1)*2)[0]))
+    for _ in range(n_scalar_adjusts):
+        children_L.append(linkage.scale_tower(parent_tower, 
+                                              (np.random.rand(1)*1.5 + 0.5)[0]))
     return children_L
+  
+def crossover(parents):
+    """
+    For each pair of parents, return the average of the two! Putting a little bit of cross-over
+    in the population. If there are n parents, there will be n(n-1)/2 offspring
+    """
     
+    def make_edges(n):
+        """
+        Returns the enumerated edges of a complete graph with n vertices, a list
+        of the form [[i, j], ...]
+        """
+        edges  = []
+        for i in range(n):
+            for j in range(i, n):
+                edges.append([i, j])
+        return edges
     
+    def get_mean_of_parents(parent1, parent2):
+        return np.mean([parent1, parent2], axis = 0).tolist()
+    
+    edges = make_edges(len(parents))
+    children_L = []
+    
+    for edge in edges:
+        children_L.append(get_mean_of_parents(parents[edge[0]], 
+                                              parents[edge[1]]))
+    return children_L
+        
+        
 def generate_randos(num_randos, 
                     num_quads, 
                     randos_mutation_factor = 0.01):
@@ -204,7 +248,8 @@ def run_sim(A0,
             n_generations, 
             n_children_per_gen, 
             init_pool_size, 
-            n_sample_points = 800):
+            n_sample_points = 800, 
+            show_traces = False):
     """
     Initialize first generation:
     """
@@ -237,11 +282,11 @@ def run_sim(A0,
         next_generation_L = []
         
         for tower in temp_best_towers:
-            temp_children_L = reproduce(tower, 
-                                        num_children = n_children_per_gen, 
-                                        mutation_factor = 0.08, 
-                                        num_randos = 2, 
-                                        randos_mutation_factor = 0.3)
+            temp_children_L = make_offspring(tower, 
+                                             num_children = n_children_per_gen, 
+                                             mutation_factor = 0.08, 
+                                             num_randos = 2, 
+                                             randos_mutation_factor = 0.3)
             
             for child_L in temp_children_L:
                 next_generation_L.append(child_L)
@@ -264,21 +309,21 @@ def run_sim(A0,
         plt.title("Distance from the Target Trace For \n the Best {} Agents over {} Generations".format(n_best, n_generations))
         plt.show()
         
-        if n%5 == 0:
+        if (n%5 == 0) and show_traces:
             '''
             Every five steps, draw the n_best traces to get a visual about 
             how the decreases in fitness match with the best-fit traces. 
             '''
             for tower in best_tower:
-                linkage.disp_trace(linkage.get_trace(A0, tower, n_sample_points/2), 
+                linkage.disp_trace(linkage.get_trace(A0, tower, int(n_sample_points/2)), 
                                    cmap = 'autumn', label = 'best_trace')
                 linkage.disp_trace(target_trace, label = 'target_trace')
                 plt.show()
                 
-        if n > 100:
-            #if no progress has been made in the past 60 generations, break
-            if best_fits[n][0] == best_fits[n - 60][0]:
-                break
+        # if n > 150:
+        #     #if no progress has been made in the past 60 generations, break
+        #     if best_fits[n][0] == best_fits[n - 100][0]:
+        #         break
             
        
     '''
@@ -295,18 +340,17 @@ def run_sim(A0,
 
 
 def gen_towers_from_traces(traces, 
-                           save_folder_name, 
-                           show_result = False):
+                           save_folder_name):
     """
     Given a set of traces, generate some towers whose traces approximate those
     that are given. Save the best towers for each trace
     """
     p0 = np.asarray([0, 0])
     n_best = 5
-    n_quads = 5
-    n_generations = 250
+    n_quads = 6
+    n_generations = 450
     n_children_per_gen = 15
-    init_pool_size = 200
+    init_pool_size = 300
     
     try:
         os.mkdir(save_folder_name)
@@ -325,15 +369,10 @@ def gen_towers_from_traces(traces,
         
         np.savetxt("{}/trace_tower_{}.csv".format(save_folder_name, index), temp_tower)
     
-    if show_result:
-        """
-        Now look at the monstrosities that the computer has made
-        """
-        tower_names = os.listdir(save_folder_name)
-        towers = [np.loadtxt("{}/trace_tower_{}.csv".format(save_folder_name, index)) 
-                  for i in range(len(tower_names))]
-        linkage.disp_moving_towers(towers)
     
+
+dna = linkage.make_dna(800, dpos = [1, 5.5], dscale = [1.15, 0.7])
+gen_towers_from_traces(dna, 'dna_output')
     
 """
 '''
